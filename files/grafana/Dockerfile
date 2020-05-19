@@ -3,7 +3,7 @@ FROM registry.access.redhat.com/rhel7.4
 USER root
 EXPOSE 3000
 
-ENV GRAFANA_VERSION="5.0.3" \
+ENV GRAFANA_VERSION="6.5.2" \
     GRAFANA_BUILD="1"
 
 

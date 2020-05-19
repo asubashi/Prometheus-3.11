@@ -1,0 +1,119 @@
+---
+- name: Create temporary directory for post-install tasks . In this task the directory is under /tmp/post
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - /tmp/post/
+
+- name: Copy files from role_path/files to a destination on target host
+  copy:
+    src: "{{ role_path }}/files/{{ item }}"
+    dest: /tmp/post/
+    directory_mode: yes
+  with_items:
+    - prometheus
+    - grafana
+    - node-exporter
+# kube-state-metrics
+- name: "Prepare project"
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 {{ item }}"
+  ignore_errors: yes
+  with_items:
+    - adm policy add-scc-to-user privileged -z node-exporter
+    - adm policy add-scc-to-user anyuid -z default
+    - adm policy add-scc-to-user privileged -z default
+    - adm policy add-cluster-role-to-user cluster-reader -z default
+    - annotate namespace openshift-monitoring-2 openshift.io/node-selector=""
+
+- name: "Deploy kube-state-metrics"
+  command: bash -c "oc -n openshift-monitoring-2 new-app --docker-image=gcr.io/google_containers/kube-state-metrics:v1.2.0 --name kube-state-metrics"
+
+- name: "Deploy cadvisor"
+  command: bash -c "oc -n openshift-monitoring-2 new-app google/cadvisor"
+
+- name: "Deploy node-exporter"
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 {{ item }}"
+  ignore_errors: yes
+  with_items:
+    - new-build  --strategy=docker --binary --name=node-exporter
+    - start-build node-exporter  --from-dir /tmp/post/node-exporter/
+
+- name: Check if node exporter build is complete
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 get build -l build=node-exporter | tail -n 1 | awk '{ print $4}'"
+  register: buildstatus
+  until: buildstatus.stdout == "Complete"
+  retries: 60
+  delay: 10
+  failed_when: no
+  ignore_errors: no
+
+- name: "Deploy node-exporter"
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 {{ item }}"
+  ignore_errors: yes
+  with_items:
+    - create -f /tmp/post/node-exporter/daemonset.yml
+    - create -f /tmp/post/node-exporter/service.yml
+
+
+
+- name: "Build prometheus"
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 {{ item }}"
+  with_items:
+    - new-build  --strategy=docker --binary --name=prometheus
+      - start-build prometheus --from-dir /tmp/post/prometheus
+  failed_when: no
+
+- name: Check if promethues build is complete
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 get build -l build=prometheus | tail -n 1 | awk '{ print $4}'"
+  register: buildstatus
+  until: buildstatus.stdout == "Complete"
+  retries: 60
+  delay: 10
+  failed_when: no
+  ignore_errors: no
+
+- name: "Deploy prometheus"
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 {{ item }}"
+  ignore_errors: yes
+  with_items:
+    - new-app -i prometheus --name prometheus
+    - create configmap prometheus-config --from-file=/tmp/post/prometheus/prometheus-config.yml
+    - create -f /tmp/post/prometheus/pvc.yml
+#    - annotate pvc grafana volume.beta.kubernetes.io/storage-class="gluster-container"
+    - volumes dc/prometheus --add --name=prometheus-config --type=configmap --configmap-name=prometheus-config --mount-path=/prometheus-config/ --overwrite
+    - volumes dc/prometheus --add --name=prometheus-data --type=pvc --claim-name=prometheus --mount-path=/prometheus/ --overwrite
+    - create route edge  prometheus --service=prometheus --hostname=prometheus.{{openshift_master_default_subdomain}}
+
+- name: "Build Grafana"
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 {{ item }}"
+  ignore_errors: yes
+  with_items:
+    - new-build  --strategy=docker --binary --name=grafana
+    - start-build grafana --from-dir /tmp/post/grafana
+  failed_when: no
+
+- name: Validate Build is complete
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 get build -l build=grafana -n openshift-monitoring-2 | tail -n 1 | awk '{ print $4}'"
+  register: buildstatus
+  until: buildstatus.stdout == "Complete"
+  retries: 60
+  delay: 10
+  failed_when: no
+  ignore_errors: no
+
+- name: "Deploy grafana"
+  command: bash -c "/usr/local/bin/oc -n openshift-monitoring-2 {{ item }}"
+  ignore_errors: yes
+  with_items:
+    - new-app -i grafana --name grafana
+    - create -f /tmp/grafana/grafana-pvc.yml
+#    - annotate pvc grafana volume.beta.kubernetes.io/storage-class="gluster-container"
+    - volume deploymentconfig grafana  --add --name=grafana-data -t pvc --claim-name=grafana  -m /var/lib/grafana --overwrite
+    - create route edge grafana --service=grafana --hostname=grafana.{{openshift_master_default_subdomain}}
+
+#- name: "Change admin password"
+#  command: bash -c "{{ item }}"
+#  ignore_errors: yes
+#  with_items:
+#    - curl -k -X PUT -H "Content-Type: application/json" -d '{"oldPassword": "admin","newPassword": "Gfarna+!", "confirmNew": "Gfarna+!" }' https://admin:admin@grafana.{{openshift_master_default_subdomain}}/api/user/password

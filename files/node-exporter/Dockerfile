@@ -6,12 +6,12 @@ MAINTAINER  <subashi@scigames>
 # https://github.com/prometheus/node_exporter/releases
 
 RUN \
-  curl -L -o node_exporter-0.18.1.linux-amd64.tar.gz \
-    https://github.com/prometheus/node_exporter/releases/download/v0.18.1/node_exporter-0.18.1.linux-amd64.tar.gz && \
-  tar -zxvf node_exporter-0.18.1.linux-amd64.tar.gz -C /tmp/ && \
-  rm node_exporter-0.18.1.linux-amd64.tar.gz
+  curl -L -o node_exporter-1.0.0-rc.1.linux-amd64.tar.gz \
+    https://github.com/prometheus/node_exporter/releases/tag/v1.0.0-rc.1/node_exporter-1.0.0-rc.1.linux-amd64.tar.gz && \
+  tar -zxvf node_exporter-1.0.0-rc.1.linux-amd64.tar.gz -C /tmp/ && \
+  rm node_exporter-1.0.0-rc.1.linux-amd64.tar.gz
 
-RUN mv /tmp/node_exporter-0.18.1.linux-amd64/node_exporter /usr/bin/node_exporter
+RUN mv /tmp/node_exporter-1.0.0-rc.1.linux-amd64/node_exporter /usr/bin/node_exporter
 RUN chmod a+x /usr/bin/node_exporter
 
 EXPOSE  9100
